@@ -1,8 +1,6 @@
 module Paperclip
   module Storage
     module Aliyun
-      def self.extended(base)
-      end
 
       def exists?(style = default_style)
         oss_connection.exists? path(style)
@@ -10,7 +8,7 @@ module Paperclip
 
       def flush_writes #:nodoc:
         @queued_for_write.each do |style_name, file|
-          oss_connection.put path(style_name), (File.new file.path)
+          oss_connection.put path(style_name), File.new( file.path ), oss_headers(file)
         end
 
         after_flush_writes
@@ -27,17 +25,29 @@ module Paperclip
       end
 
       def copy_to_local_file(style = default_style, local_dest_path)
-        log("copying #{path(style)} to local file #{local_dest_path}")
-        local_file = ::File.open(local_dest_path, 'wb')
-        remote_file_str = oss_connection.get path(style)
-        local_file.write(remote_file_str)
-        local_file.close
+        remote_path = path( style )
+
+        log("copying #{remote_path} to local file #{local_dest_path}")
+
+        oss_connection.get( remote_path ) do |body|
+          ::File.open(local_dest_path, 'wb') do |file|
+            file.write body
+          end
+        end
       end
 
       def oss_connection
-        return @oss_connection if @oss_connection
-
         @oss_connection ||= ::Aliyun::Connection.new
+      end
+
+      def oss_headers file
+        { content_type: file.content_type }
+          .merge( @options[:aliyun_oss_headers] || {} )
+          .tap do |opts|
+            opts.each do |k, v|
+              opts[k] = v.respond_to?( :call ) ? v.call(file) : v
+            end
+          end
       end
     end
   end
